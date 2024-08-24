@@ -11,48 +11,33 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/lib/pq"
-	"github.com/sanyokbig/pqinterval"
+	"github.com/Ayomided/probable-memory.git/sqlite"
+	_ "github.com/mattn/go-sqlite3"
 )
 
-type PgDuration time.Duration
+// type WorkEntry struct {
+// 	ID          int
+// 	Date        time.Time
+// 	StartTime   time.Time
+// 	EndTime     time.Time
+// 	Duration    pqinterval.Interval
+// 	Description string
+// 	Project     string
+// }
 
-type WorkEntry struct {
-	ID          int
-	Date        time.Time
-	StartTime   time.Time
-	EndTime     time.Time
-	Duration    pqinterval.Interval
-	Description string
-	Project     string
-}
+// var entries []WorkEntry
 
-var entries []WorkEntry
-
-const (
-	host     = "localhost"
-	port     = 54322
-	user     = "postgres"
-	password = "postgres"
-	dbname   = "postgres"
-)
+// const (
+// 	host     = "localhost"
+// 	port     = 54322
+// 	user     = "postgres"
+// 	password = "postgres"
+// 	dbname   = "postgres"
+// )
 
 func main() {
-	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
-	db, err := sql.Open("postgres", psqlInfo)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	defer db.Close()
-
-	err = db.Ping()
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println("Successfully connected!")
-
+	dbConnection := setupDBConnection()
+	db := sqlite.New(dbConnection)
 	for {
 		fmt.Println("\n1. Start work")
 		fmt.Println("2. End work")
@@ -91,7 +76,15 @@ func main() {
 	}
 }
 
-func startWork(db *sql.DB) (int, error) {
+func setupDBConnection() *sql.DB {
+	db, err := sql.Open("sqlite3", "activity.db")
+	if err != nil {
+		panic(err)
+	}
+	return db
+}
+
+func startWork(db *sqlite.Queries) (int, error) {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Print("Enter task description: ")
@@ -104,6 +97,7 @@ func startWork(db *sql.DB) (int, error) {
 
 	// fmt.Printf("%s, %s", description, project)
 	var taskID int
+	// TODO HERE too
 	err := db.QueryRow(`
 	    INSERT INTO work_entry (date, start_time, description, project)
 	    VALUES ($1, $2, $3, $4)
