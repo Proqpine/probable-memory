@@ -7,12 +7,14 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Ayomided/probable-memory.git/sqlite"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	_ "github.com/mattn/go-sqlite3"
@@ -27,6 +29,11 @@ var (
 	statusMessage = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#04B575", Dark: "#04B575"}).
 			Render()
+	infoStyle = func() lipgloss.Style {
+		b := lipgloss.RoundedBorder()
+		b.Left = "┤"
+		return titleStyle.BorderStyle(b)
+	}()
 )
 
 type model struct {
@@ -42,6 +49,8 @@ type model struct {
 	addingActivity        bool
 	inputs                []textinput.Model
 	inputIndex            int
+	viewport              viewport.Model
+	viewingActivity       bool
 }
 
 type keyMap struct {
@@ -51,10 +60,15 @@ type keyMap struct {
 	togglePagination key.Binding
 	toggleHelpMenu   key.Binding
 	insertItem       key.Binding
+	viewItem         key.Binding
 }
 
 func newKeyMap() keyMap {
 	return keyMap{
+		viewItem: key.NewBinding(
+			key.WithKeys("v"),
+			key.WithHelp("v", "view item"),
+		),
 		insertItem: key.NewBinding(
 			key.WithKeys("a"),
 			key.WithHelp("a", "add item"),
@@ -111,6 +125,7 @@ func initialModel(queries *sqlite.Queries) model {
 		return []key.Binding{
 			keys.toggleSpinner,
 			keys.insertItem,
+			keys.viewItem,
 			keys.toggleTitleBar,
 			keys.toggleStatusBar,
 			keys.togglePagination,
@@ -118,13 +133,16 @@ func initialModel(queries *sqlite.Queries) model {
 		}
 	}
 	m := model{
-		list:           l,
-		Queries:        queries,
-		Activities:     []sqlite.Activity{},
-		Loading:        true,
-		keys:           keys,
-		addingActivity: false,
-		inputs:         make([]textinput.Model, 5),
+		list:             l,
+		Queries:          queries,
+		Activities:       []sqlite.Activity{},
+		Loading:          true,
+		keys:             keys,
+		addingActivity:   false,
+		inputs:           make([]textinput.Model, 5),
+		SelectedActivity: nil,
+		viewport:         viewport.New(80, 20),
+		viewingActivity:  false,
 	}
 	for i := range m.inputs {
 		t := textinput.New()
@@ -148,13 +166,33 @@ func initialModel(queries *sqlite.Queries) model {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var (
+		cmd  tea.Cmd
+		cmds []tea.Cmd
+	)
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		h, v := appStyle.GetFrameSize()
-		m.list.SetSize(msg.Width-h, msg.Height-v)
+		if m.viewingActivity {
+			m.viewport.Width = msg.Width
+			m.viewport.Height = msg.Height
+		} else {
+			m.list.SetSize(msg.Width-h, msg.Height-v)
+		}
 
 	case tea.KeyMsg:
-		if m.addingActivity {
+		if m.viewingActivity {
+			switch msg.String() {
+			case "q", "esc":
+				m.viewingActivity = false
+				m.SelectedActivity = nil
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
+		} else if m.addingActivity {
 			switch msg.String() {
 			case "enter":
 				if m.inputIndex == len(m.inputs)-1 {
@@ -170,34 +208,43 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.inputs[m.inputIndex], cmd = m.inputs[m.inputIndex].Update(msg)
 			return m, cmd
-		}
-		switch {
-		case key.Matches(msg, m.keys.toggleSpinner):
-			cmd := m.list.ToggleSpinner()
-			return m, cmd
+		} else {
+			switch {
+			case key.Matches(msg, m.keys.toggleSpinner):
+				cmd := m.list.ToggleSpinner()
+				return m, cmd
 
-		case key.Matches(msg, m.keys.toggleTitleBar):
-			v := !m.list.ShowTitle()
-			m.list.SetShowTitle(v)
-			m.list.SetShowFilter(v)
-			m.list.SetFilteringEnabled(v)
-			return m, nil
+			case key.Matches(msg, m.keys.toggleTitleBar):
+				v := !m.list.ShowTitle()
+				m.list.SetShowTitle(v)
+				m.list.SetShowFilter(v)
+				m.list.SetFilteringEnabled(v)
+				return m, nil
 
-		case key.Matches(msg, m.keys.toggleStatusBar):
-			m.list.SetShowStatusBar(!m.list.ShowStatusBar())
-			return m, nil
+			case key.Matches(msg, m.keys.toggleStatusBar):
+				m.list.SetShowStatusBar(!m.list.ShowStatusBar())
+				return m, nil
 
-		case key.Matches(msg, m.keys.togglePagination):
-			m.list.SetShowPagination(!m.list.ShowPagination())
-			return m, nil
+			case key.Matches(msg, m.keys.togglePagination):
+				m.list.SetShowPagination(!m.list.ShowPagination())
+				return m, nil
 
-		case key.Matches(msg, m.keys.toggleHelpMenu):
-			m.list.SetShowHelp(!m.list.ShowHelp())
-			return m, nil
+			case key.Matches(msg, m.keys.toggleHelpMenu):
+				m.list.SetShowHelp(!m.list.ShowHelp())
+				return m, nil
 
-		case key.Matches(msg, m.keys.insertItem):
-			m.addingActivity = true
-			return m, nil
+			case key.Matches(msg, m.keys.insertItem):
+				m.addingActivity = true
+				return m, nil
+
+			case key.Matches(msg, m.keys.viewItem):
+				if i, ok := m.list.SelectedItem().(item); ok {
+					m.viewingActivity = true
+					m.SelectedActivity = &i.activity
+					m.viewport.SetContent(m.activityView())
+					return m, nil
+				}
+			}
 		}
 
 	case activityAddedMsg:
@@ -224,9 +271,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
-	return m, cmd
+	cmds = append(cmds, cmd)
+
+	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() string {
@@ -238,6 +286,9 @@ func (m model) View() string {
 	}
 	if m.addingActivity {
 		return m.addActivityView()
+	}
+	if m.viewingActivity {
+		return fmt.Sprintf("%s\n%s\n%s", m.headerView(), m.viewport.View(), m.footerView())
 	}
 	return appStyle.Render(m.list.View())
 }
@@ -272,6 +323,35 @@ func (m model) addActivityView() string {
 	)
 }
 
+func (m model) activityView() string {
+	if m.SelectedActivity == nil {
+		return "No activity selected"
+	}
+
+	a := m.SelectedActivity
+	return lipgloss.NewStyle().Margin(1, 2).Render(fmt.Sprintf(`
+Description: %s
+
+Project: %s
+
+Notes: %s
+
+Duration: %d seconds
+
+Start Time: %s
+
+End Time: %s
+
+(press esc to go back)`,
+		a.Description,
+		a.Project,
+		a.Notes,
+		a.Duration.Int64,
+		a.StartTime.Format(time.RFC3339),
+		a.EndTime.Time.Format(time.RFC3339),
+	))
+}
+
 type activityAddedMsg struct{}
 
 func (m model) addActivity() tea.Msg {
@@ -291,6 +371,18 @@ func (m model) addActivity() tea.Msg {
 		return errorMsg{err}
 	}
 	return activityAddedMsg{}
+}
+
+func (m model) headerView() string {
+	title := titleStyle.Render(m.SelectedActivity.ActivityName)
+	line := strings.Repeat("─", max(0, m.viewport.Width-lipgloss.Width(title)))
+	return lipgloss.JoinHorizontal(lipgloss.Center, title, line)
+}
+
+func (m model) footerView() string {
+	info := infoStyle.Render(fmt.Sprintf("%3.f%%", m.viewport.ScrollPercent()*100))
+	line := strings.Repeat("─", max(0, m.viewport.Width-lipgloss.Width(info)))
+	return lipgloss.JoinHorizontal(lipgloss.Center, line, info)
 }
 
 func (m model) fetchActivities() tea.Msg {
