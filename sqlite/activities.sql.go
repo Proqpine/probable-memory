@@ -7,7 +7,47 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
+	"time"
 )
+
+const insertActivity = `-- name: InsertActivity :one
+insert into activities (start_time, end_time, duration, activity_name, description, project, notes) values (?, ?, ?, ?, ?, ?, ?) returning id, start_time, end_time, duration, activity_name, description, project, notes
+`
+
+type InsertActivityParams struct {
+	StartTime    time.Time
+	EndTime      sql.NullTime
+	Duration     sql.NullInt64
+	ActivityName string
+	Description  string
+	Project      string
+	Notes        string
+}
+
+func (q *Queries) InsertActivity(ctx context.Context, arg InsertActivityParams) (Activity, error) {
+	row := q.db.QueryRowContext(ctx, insertActivity,
+		arg.StartTime,
+		arg.EndTime,
+		arg.Duration,
+		arg.ActivityName,
+		arg.Description,
+		arg.Project,
+		arg.Notes,
+	)
+	var i Activity
+	err := row.Scan(
+		&i.ID,
+		&i.StartTime,
+		&i.EndTime,
+		&i.Duration,
+		&i.ActivityName,
+		&i.Description,
+		&i.Project,
+		&i.Notes,
+	)
+	return i, err
+}
 
 const queryActivities = `-- name: QueryActivities :many
 select id, start_time, end_time, duration, activity_name, description, project, notes from activities

@@ -5,7 +5,7 @@ create table if not exists activities(
     id integrer primary key,
     start_time timestamp not null,
     end_time timestamp,
-    duration timestamp,
+    duration integer,
     activity_name varchar(255) not null,
     description varchar(255) not null,
     project varchar(255) not null,

@@ -13,7 +13,7 @@ type Activity struct {
 	ID           interface{}
 	StartTime    time.Time
 	EndTime      sql.NullTime
-	Duration     sql.NullTime
+	Duration     sql.NullInt64
 	ActivityName string
 	Description  string
 	Project      string
