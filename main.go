@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	_ "github.com/mattn/go-sqlite3"
+)
+
+const (
+	hotPink  = lipgloss.Color("#FF06B7")
+	darkGray = lipgloss.Color("#767676")
 )
 
 var (
@@ -34,6 +40,8 @@ var (
 		b.Left = "┤"
 		return titleStyle.BorderStyle(b)
 	}()
+	inputStyle    = lipgloss.NewStyle().Foreground(hotPink)
+	continueStyle = lipgloss.NewStyle().Foreground(darkGray)
 )
 
 type model struct {
@@ -51,6 +59,9 @@ type model struct {
 	inputIndex            int
 	viewport              viewport.Model
 	viewingActivity       bool
+	editingActivity       bool
+	editInputs            []textinput.Model
+	editInputIndex        int
 }
 
 type keyMap struct {
@@ -61,10 +72,15 @@ type keyMap struct {
 	toggleHelpMenu   key.Binding
 	insertItem       key.Binding
 	viewItem         key.Binding
+	editItem         key.Binding
 }
 
 func newKeyMap() keyMap {
 	return keyMap{
+		editItem: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "edit item"),
+		),
 		viewItem: key.NewBinding(
 			key.WithKeys("v"),
 			key.WithHelp("v", "view item"),
@@ -126,6 +142,7 @@ func initialModel(queries *sqlite.Queries) model {
 			keys.toggleSpinner,
 			keys.insertItem,
 			keys.viewItem,
+			keys.editItem,
 			keys.toggleTitleBar,
 			keys.toggleStatusBar,
 			keys.togglePagination,
@@ -143,6 +160,25 @@ func initialModel(queries *sqlite.Queries) model {
 		SelectedActivity: nil,
 		viewport:         viewport.New(80, 20),
 		viewingActivity:  false,
+		editingActivity:  false,
+		editInputs:       make([]textinput.Model, 5),
+		editInputIndex:   0,
+	}
+	for i := range m.editInputs {
+		t := textinput.New()
+		switch i {
+		case 0:
+			t.Placeholder = "Activity Name"
+		case 1:
+			t.Placeholder = "Description"
+		case 2:
+			t.Placeholder = "Project"
+		case 3:
+			t.Placeholder = "Notes"
+		case 4:
+			t.Placeholder = "Duration (in seconds)"
+		}
+		m.editInputs[i] = t
 	}
 	for i := range m.inputs {
 		t := textinput.New()
@@ -182,7 +218,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		if m.viewingActivity {
+		if m.editingActivity {
+			switch msg.String() {
+			case "up":
+				m.editInputIndex = max(0, m.editInputIndex-1)
+				m.editInputs[m.editInputIndex].Focus()
+				return m, nil
+			case "down":
+				m.editInputIndex = min(len(m.editInputs)-1, m.editInputIndex+1)
+				m.editInputs[m.editInputIndex].Focus()
+				return m, nil
+			case "esc":
+				m.editingActivity = false
+				m.editInputIndex = 0
+				return m, nil
+			}
+			if m.editInputIndex == len(m.editInputs)-1 && msg.String() == "enter" {
+				return m, m.updateActivity
+			}
+			var cmd tea.Cmd
+			m.editInputs[m.editInputIndex], cmd = m.editInputs[m.editInputIndex].Update(msg)
+			return m, cmd
+		} else if m.viewingActivity {
 			switch msg.String() {
 			case "q", "esc":
 				m.viewingActivity = false
@@ -244,6 +301,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.viewport.SetContent(m.activityView())
 					return m, nil
 				}
+			case key.Matches(msg, m.keys.editItem):
+				if i, ok := m.list.SelectedItem().(item); ok {
+					m.viewingActivity = true
+					m.SelectedActivity = &i.activity
+					m.editingActivity = true
+					m.populateEditInputs()
+					m.editInputs[0].Focus()
+					return m, nil
+				}
 			}
 		}
 
@@ -269,6 +335,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Error = msg.error
 		m.Loading = false
 		return m, nil
+
+	case activityUpdatedMsg:
+		m.editingActivity = false
+		m.viewingActivity = false
+		m.SelectedActivity = nil
+		for i := range m.editInputs {
+			m.editInputs[i].Reset()
+		}
+		m.editInputIndex = 0
+		return m, m.fetchActivities
+
 	}
 
 	m.list, cmd = m.list.Update(msg)
@@ -276,6 +353,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	return m, tea.Batch(cmds...)
 }
+
+func (m model) updateActivity() tea.Msg {
+	if m.SelectedActivity == nil {
+		return errorMsg{error: fmt.Errorf("no activity selected")}
+	}
+
+	duration, err := strconv.ParseInt(m.editInputs[4].Value(), 10, 64)
+	if err != nil {
+		return errorMsg{error: fmt.Errorf("invalid duration: %v", err)}
+	}
+
+	updatedActivity := sqlite.UpdateActivityParams{
+		ID:           m.SelectedActivity.ID,
+		ActivityName: m.editInputs[0].Value(),
+		Description:  m.editInputs[1].Value(),
+		Project:      m.editInputs[2].Value(),
+		Notes:        m.editInputs[3].Value(),
+		Duration:     sql.NullInt64{Int64: duration, Valid: true},
+	}
+
+	_, err = m.Queries.UpdateActivity(context.Background(), updatedActivity)
+	if err != nil {
+		return errorMsg{error: fmt.Errorf("failed to update activity: %v", err)}
+	}
+
+	return activityUpdatedMsg{}
+}
+
+type activityUpdatedMsg struct{}
 
 func (m model) View() string {
 	if m.Loading {
@@ -286,6 +392,9 @@ func (m model) View() string {
 	}
 	if m.addingActivity {
 		return m.addActivityView()
+	}
+	if m.editingActivity {
+		return m.editActivityView()
 	}
 	if m.viewingActivity {
 		return fmt.Sprintf("%s\n%s\n%s", m.headerView(), m.viewport.View(), m.footerView())
@@ -312,6 +421,18 @@ func setupDBConnection() *sql.DB {
 	return db
 }
 
+func (m *model) populateEditInputs() {
+	if m.SelectedActivity == nil {
+		return
+	}
+
+	m.editInputs[0].SetValue(m.SelectedActivity.ActivityName)
+	m.editInputs[1].SetValue(m.SelectedActivity.Description)
+	m.editInputs[2].SetValue(m.SelectedActivity.Project)
+	m.editInputs[3].SetValue(m.SelectedActivity.Notes)
+	m.editInputs[4].SetValue(fmt.Sprintf("%d", m.SelectedActivity.Duration.Int64))
+}
+
 func (m model) addActivityView() string {
 	var s string
 	for i := range m.inputs {
@@ -321,6 +442,72 @@ func (m model) addActivityView() string {
 		"Adding new activity\n\n%s\n\n(esc to cancel)",
 		s,
 	)
+}
+
+func (m model) editActivityView() string {
+	// Define styles
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FAFAFA")).
+		Background(lipgloss.Color("#7D56F4")).
+		Padding(0, 1).
+		Bold(true)
+
+	inputStyle := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#7D56F4")).
+		Padding(0).
+		Width(50)
+
+	focusedStyle := inputStyle.
+		BorderForeground(lipgloss.Color("#FF00FF"))
+
+	infoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#888888")).
+		Italic(true)
+
+	// Create the view
+	var b strings.Builder
+
+	// Title
+	b.WriteString(titleStyle.Render("Editing Activity") + "\n\n")
+
+	// Inputs
+	labels := []string{"Activity Name", "Description", "Project", "Notes", "Duration (seconds)"}
+	for i, input := range m.editInputs {
+		// Label
+		b.WriteString(lipgloss.NewStyle().Bold(true).Render(labels[i]) + "\n")
+
+		// Input field
+		style := inputStyle
+		if i == m.editInputIndex {
+			style = focusedStyle
+		}
+		b.WriteString(style.Render(input.View()) + "\n\n")
+	}
+
+	// Instructions
+	instructions := lipgloss.JoinHorizontal(lipgloss.Center,
+		infoStyle.Render("↑/↓: Navigate • "),
+		infoStyle.Render("Enter: Save • "),
+		infoStyle.Render("Esc: Cancel"),
+	)
+	b.WriteString(instructions)
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (m model) activityView() string {
@@ -342,7 +529,7 @@ Start Time: %s
 
 End Time: %s
 
-(press esc to go back)`,
+(press 'e' to edit, esc to go back)`,
 		a.Description,
 		a.Project,
 		a.Notes,

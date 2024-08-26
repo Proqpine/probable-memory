@@ -104,3 +104,52 @@ func (q *Queries) QueryActivityByProject(ctx context.Context, project string) (A
 	)
 	return i, err
 }
+
+const updateActivity = `-- name: UpdateActivity :one
+update activities
+set start_time = ?,
+    end_time = ?,
+    duration = ?,
+    activity_name = ?,
+    description = ?,
+    project = ?,
+    notes = ?
+where id = ?
+returning id, start_time, end_time, duration, activity_name, description, project, notes
+`
+
+type UpdateActivityParams struct {
+	StartTime    time.Time
+	EndTime      sql.NullTime
+	Duration     sql.NullInt64
+	ActivityName string
+	Description  string
+	Project      string
+	Notes        string
+	ID           interface{}
+}
+
+func (q *Queries) UpdateActivity(ctx context.Context, arg UpdateActivityParams) (Activity, error) {
+	row := q.db.QueryRowContext(ctx, updateActivity,
+		arg.StartTime,
+		arg.EndTime,
+		arg.Duration,
+		arg.ActivityName,
+		arg.Description,
+		arg.Project,
+		arg.Notes,
+		arg.ID,
+	)
+	var i Activity
+	err := row.Scan(
+		&i.ID,
+		&i.StartTime,
+		&i.EndTime,
+		&i.Duration,
+		&i.ActivityName,
+		&i.Description,
+		&i.Project,
+		&i.Notes,
+	)
+	return i, err
+}
