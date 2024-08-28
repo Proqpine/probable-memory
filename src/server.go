@@ -142,8 +142,8 @@ func ExecuteWebHook(data WebhookData) {
 
 func main() {
 	data := NewWebHookData(
-		"Message without embed",
-		"Captain Hook",
+		"Captain hook says hi",
+		"Hook and Eye",
 		"https://example.com/go-icon.png",
 	)
 	ExecuteWebHook(data)
