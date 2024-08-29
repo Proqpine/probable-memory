@@ -1,12 +1,13 @@
-module github.com/Ayomided/probable-memory.git
+module github.com/Proqpine/probable-memory
 
-go 1.22.3
+go 1.23.0
 
 require (
 	github.com/charmbracelet/bubbles v0.19.0
-	github.com/charmbracelet/bubbletea v0.27.1
+	github.com/charmbracelet/bubbletea v1.0.0
 	github.com/charmbracelet/lipgloss v0.13.0
 	github.com/mattn/go-sqlite3 v1.14.22
+	github.com/sanity-io/litter v1.5.5
 )
 
 require (

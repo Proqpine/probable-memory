@@ -1,6 +1,5 @@
 // https://discord.com/api/webhooks/1277902137254350920/MI3_f0XSDWL7pE_J4tHtcWU_QI7lK22aw5QlwjSXX_KqoM8iPFLO0npb05oPizarEuOA
-
-package main
+package src
 
 import (
 	"bytes"
@@ -138,13 +137,4 @@ func ExecuteWebHook(data WebhookData) {
 		log.Fatalf("Impossible to read all body of response: %s", err)
 	}
 	log.Printf("Response: %s, %v", string(resBody), resp.StatusCode)
-}
-
-func main() {
-	data := NewWebHookData(
-		"Captain hook says hi",
-		"Hook and Eye",
-		"https://example.com/go-icon.png",
-	)
-	ExecuteWebHook(data)
 }

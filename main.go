@@ -11,7 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Ayomided/probable-memory.git/sqlite"
+	"github.com/Proqpine/probable-memory/sqlite"
+	"github.com/Proqpine/probable-memory/src"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -414,6 +415,7 @@ func main() {
 }
 
 func setupDBConnection() *sql.DB {
+	src.ExecuteSummary()
 	db, err := sql.Open("sqlite3", "activity.db")
 	if err != nil {
 		panic(err)
