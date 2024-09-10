@@ -76,6 +76,18 @@ type keyMap struct {
 	editItem         key.Binding
 }
 
+func main() {
+	src.SummariseActivities()
+	dbConnection := setupDBConnection()
+	defer dbConnection.Close()
+	db := sqlite.New(dbConnection)
+	p := tea.NewProgram(initialModel(db))
+	if _, err := p.Run(); err != nil {
+		fmt.Printf("Error running program: %v", err)
+		os.Exit(1)
+	}
+}
+
 func newKeyMap() keyMap {
 	return keyMap{
 		editItem: key.NewBinding(
@@ -403,19 +415,7 @@ func (m model) View() string {
 	return appStyle.Render(m.list.View())
 }
 
-func main() {
-	dbConnection := setupDBConnection()
-	defer dbConnection.Close()
-	db := sqlite.New(dbConnection)
-	p := tea.NewProgram(initialModel(db))
-	if _, err := p.Run(); err != nil {
-		fmt.Printf("Error running program: %v", err)
-		os.Exit(1)
-	}
-}
-
 func setupDBConnection() *sql.DB {
-	src.ExecuteSummary()
 	db, err := sql.Open("sqlite3", "activity.db")
 	if err != nil {
 		panic(err)

@@ -8,6 +8,7 @@ require (
 	github.com/charmbracelet/lipgloss v0.13.0
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/sanity-io/litter v1.5.5
+	github.com/subosito/gotenv v1.6.0
 )
 
 require (
@@ -30,5 +31,5 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.24.0 // indirect
-	golang.org/x/text v0.3.8 // indirect
+	golang.org/x/text v0.12.0 // indirect
 )

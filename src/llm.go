@@ -7,8 +7,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/sanity-io/litter"
+	"github.com/subosito/gotenv"
 )
 
 type Message struct {
@@ -47,15 +49,22 @@ type Usage struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
-func ExecuteSummary() {
+func SummariseActivities() {
+	err := gotenv.Load(".env")
+	if err != nil {
+		log.Fatalf("Error loading .env: %s", err)
+	}
+
+	OPENAI_API_KEY := os.Getenv("OPENAI_API_KEY")
+
 	request := AIRequest{
 		Model: "gpt-4o-mini",
 		Messages: []Message{
-			Message{
+			{
 				Role:    "system",
 				Content: "You are a helpful assistant.",
 			},
-			Message{
+			{
 				Role:    "user",
 				Content: "Write a haiku that explains dependency injection.",
 			},
@@ -78,7 +87,7 @@ func ExecuteSummary() {
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add(
 		"Authorization",
-		fmt.Sprintf("Bearer %s", "OPEN_AI_KEY"))
+		fmt.Sprintf("Bearer %s", OPENAI_API_KEY))
 
 	if err != nil {
 		log.Fatal(err)
@@ -94,11 +103,14 @@ func ExecuteSummary() {
 	var response AIResponse
 
 	body, err := io.ReadAll(resp.Body)
+	fmt.Println(string(body))
 	err = json.Unmarshal(body, &response)
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	if resp.StatusCode != http.StatusOK {
+		log.Fatalf("Error: %s", resp.Status)
+	}
 	data := NewWebHookData(
 		response.Choices[0].ResponseMessage.Content,
 		"Haiku Naiku",
